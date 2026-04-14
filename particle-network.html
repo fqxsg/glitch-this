@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>唯美光点星空</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            background: radial-gradient(ellipse at center, #0a0e27 0%, #000000 100%);
+        }
+        
+        canvas {
+            display: block;
+        }
+        
+        .info-label {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            color: rgba(200, 220, 255, 0.4);
+            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            font-size: 13px;
+            pointer-events: none;
+            user-select: none;
+            z-index: 10;
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="particleCanvas"></canvas>
+    <div class="info-label">✨ 唯美光点星空 | 点击触发星光爆发</div>
+    
+    <script>
+        const canvas = document.getElementById('particleCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 配置参数
+        const PARTICLE_COUNT = 200;
+        const CONNECTION_DISTANCE = 100;
+        const MOUSE_REPULSION_DISTANCE = 100;
+        const EDGE_MARGIN = 10;
+        
+        // 唯美配色方案 - 柔和的蓝白金色系
+        const COLOR_PALETTE = [
+            { h: 200, s: 70, l: 80 }, // 冰蓝
+            { h: 220, s: 60, l: 85 }, // 淡蓝
+            { h: 180, s: 50, l: 75 }, // 青白
+            { h: 260, s: 40, l: 85 }, // 淡紫
+            { h: 45, s: 80, l: 85 },  // 暖金
+            { h: 0, s: 0, l: 95 },    // 纯白
+        ];
+        
+        let particles = [];
+        let stars = [];
+        let mouse = { x: null, y: null };
+        let animationId = null;
+        let warpMode = false;
+        let warpTimer = null;
+        
+        // 设置画布尺寸
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        
+        // 背景星星类
+        class Star {
+            constructor() {
+                this.reset();
+            }
+            
+            reset() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.size = Math.random() * 1.5 + 0.5;
+                this.baseAlpha = Math.random() * 0.5 + 0.2;
+                this.alpha = this.baseAlpha;
+                this.twinkleSpeed = Math.random() * 0.02 + 0.005;
+                this.twinklePhase = Math.random() * Math.PI * 2;
+            }
+            
+            update() {
+                this.twinklePhase += this.twinkleSpeed;
+                this.alpha = this.baseAlpha + Math.sin(this.twinklePhase) * 0.15;
+                this.alpha = Math.max(0.1, Math.min(0.8, this.alpha));
+                
+                // 超空间模式下星星变成线条
+                if (warpMode) {
+                    this.y += 15;
+                    if (this.y > canvas.height) {
+                        this.y = 0;
+                        this.x = Math.random() * canvas.width;
+                    }
+                }
+            }
+            
+            draw() {
+                if (warpMode) {
+                    // 超空间线条效果
+                    const length = 20 + Math.random() * 30;
+                    const gradient = ctx.createLinearGradient(this.x, this.y, this.x, this.y - length);
+                    gradient.addColorStop(0, `rgba(200, 220, 255, ${this.alpha})`);
+                    gradient.addColorStop(1, 'rgba(200, 220, 255, 0)');
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(this.x, this.y);
+                    ctx.lineTo(this.x, this.y - length);
+                    ctx.strokeStyle = gradient;
+                    ctx.lineWidth = this.size;
+                    ctx.stroke();
+                } else {
+                    // 柔和的光点效果
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(220, 235, 255, ${this.alpha})`;
+                    ctx.fill();
+                }
+            }
+        }
+        
+        // 光点粒子类
+        class Particle {
+            constructor() {
+                this.reset();
+                this.initColor();
+            }
+            
+            initColor() {
+                // 从配色方案中选择一个颜色
+                const color = COLOR_PALETTE[Math.floor(Math.random() * COLOR_PALETTE.length)];
+                this.hue = color.h;
+                this.saturation = color.s;
+                this.lightness = color.l;
+                this.baseLightness = color.l;
+            }
+            
+            reset() {
+                this.x = EDGE_MARGIN + Math.random() * (canvas.width - EDGE_MARGIN * 2);
+                this.y = EDGE_MARGIN + Math.random() * (canvas.height - EDGE_MARGIN * 2);
+                
+                // 随机速度
+                this.vx = (Math.random() - 0.5) * 1.5;
+                this.vy = (Math.random() - 0.5) * 1.5;
+                
+                // 限制速度范围
+                this.vx = Math.max(-0.8, Math.min(0.8, this.vx));
+                this.vy = Math.max(-0.8, Math.min(0.8, this.vy));
+                
+                // 光点半径 (1.5 ~ 3px)
+                this.radius = 1.5 + Math.random() * 1.5;
+                
+                // 呼吸效果
+                this.pulsePhase = Math.random() * Math.PI * 2;
+                this.pulseSpeed = 0.02 + Math.random() * 0.02;
+                
+                // 拖尾
+                this.trail = [];
+                this.maxTrailLength = 8;
+            }
+            
+            // 获取当前颜色
+            getColor(alpha = 1) {
+                return `hsla(${this.hue}, ${this.saturation}%, ${this.lightness}%, ${alpha})`;
+            }
+            
+            // HSL转RGB用于连线混合
+            hslToRgb(h, s, l) {
+                s /= 100;
+                l /= 100;
+                const k = n => (n + h / 30) % 12;
+                const a = s * Math.min(l, 1 - l);
+                const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+                return {
+                    r: Math.round(f(0) * 255),
+                    g: Math.round(f(8) * 255),
+                    b: Math.round(f(4) * 255)
+                };
+            }
+            
+            getRgbColor() {
+                return this.hslToRgb(this.hue, this.saturation, this.lightness);
+            }
+            
+            update() {
+                // 呼吸效果
+                this.pulsePhase += this.pulseSpeed;
+                const pulse = Math.sin(this.pulsePhase) * 10;
+                this.lightness = this.baseLightness + pulse;
+                
+                // 超空间模式
+                if (warpMode) {
+                    // 向中心聚集后爆发
+                    const centerX = canvas.width / 2;
+                    const centerY = canvas.height / 2;
+                    const dx = this.x - centerX;
+                    const dy = this.y - centerY;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (dist > 0) {
+                        const angle = Math.atan2(dy, dx);
+                        const force = 8 + Math.random() * 5;
+                        this.vx = Math.cos(angle) * force;
+                        this.vy = Math.sin(angle) * force;
+                    }
+                    
+                    // 延长拖尾
+                    this.maxTrailLength = 25;
+                } else {
+                    this.maxTrailLength = 8;
+                    
+                    // 鼠标排斥效果（柔和的）
+                    if (mouse.x !== null && mouse.y !== null) {
+                        const dx = this.x - mouse.x;
+                        const dy = this.y - mouse.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        
+                        if (distance < MOUSE_REPULSION_DISTANCE && distance > 0) {
+                            const force = (MOUSE_REPULSION_DISTANCE - distance) / MOUSE_REPULSION_DISTANCE;
+                            const angle = Math.atan2(dy, dx);
+                            const repulsionStrength = 0.8;
+                            
+                            this.vx += Math.cos(angle) * force * repulsionStrength;
+                            this.vy += Math.sin(angle) * force * repulsionStrength;
+                        }
+                    }
+                }
+                
+                // 记录拖尾位置
+                this.trail.push({ x: this.x, y: this.y });
+                if (this.trail.length > this.maxTrailLength) {
+                    this.trail.shift();
+                }
+                
+                // 更新位置
+                this.x += this.vx;
+                this.y += this.vy;
+                
+                // 边界反弹（柔和）
+                if (this.x < EDGE_MARGIN) {
+                    this.x = EDGE_MARGIN;
+                    this.vx = Math.abs(this.vx) * 0.8;
+                } else if (this.x > canvas.width - EDGE_MARGIN) {
+                    this.x = canvas.width - EDGE_MARGIN;
+                    this.vx = -Math.abs(this.vx) * 0.8;
+                }
+                
+                if (this.y < EDGE_MARGIN) {
+                    this.y = EDGE_MARGIN;
+                    this.vy = Math.abs(this.vy) * 0.8;
+                } else if (this.y > canvas.height - EDGE_MARGIN) {
+                    this.y = canvas.height - EDGE_MARGIN;
+                    this.vy = -Math.abs(this.vy) * 0.8;
+                }
+                
+                // 限制最大速度
+                const maxSpeed = warpMode ? 20 : 1.5;
+                const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                if (speed > maxSpeed) {
+                    this.vx = (this.vx / speed) * maxSpeed;
+                    this.vy = (this.vy / speed) * maxSpeed;
+                }
+                
+                // 恢复自然速度
+                if (!warpMode && speed > 0.3) {
+                    this.vx *= 0.995;
+                    this.vy *= 0.995;
+                }
+            }
+            
+            draw() {
+                // 绘制拖尾
+                if (this.trail.length > 1) {
+                    for (let i = 0; i < this.trail.length - 1; i++) {
+                        const point = this.trail[i];
+                        const nextPoint = this.trail[i + 1];
+                        const alpha = (i / this.trail.length) * 0.4;
+                        
+                        ctx.beginPath();
+                        ctx.moveTo(point.x, point.y);
+                        ctx.lineTo(nextPoint.x, nextPoint.y);
+                        ctx.strokeStyle = this.getColor(alpha);
+                        ctx.lineWidth = this.radius * (i / this.trail.length) * 0.8;
+                        ctx.stroke();
+                    }
+                }
+                
+                // 绘制光点主体（柔和发光效果）
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.radius * 4
+                );
+                gradient.addColorStop(0, this.getColor(1));
+                gradient.addColorStop(0.3, this.getColor(0.4));
+                gradient.addColorStop(0.6, this.getColor(0.1));
+                gradient.addColorStop(1, 'rgba(0,0,0,0)');
+                
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius * 4, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                // 核心亮点
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius * 0.6, 0, Math.PI * 2);
+                ctx.fillStyle = `hsla(${this.hue}, 30%, 98%, 0.9)`;
+                ctx.fill();
+            }
+        }
+        
+        // 初始化
+        function init() {
+            particles = [];
+            stars = [];
+            
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                particles.push(new Particle());
+            }
+            
+            for (let i = 0; i < 150; i++) {
+                stars.push(new Star());
+            }
+        }
+        
+        // 绘制连线（唯美的细线）
+        function drawConnections() {
+            for (let i = 0; i < particles.length; i++) {
+                for (let j = i + 1; j < particles.length; j++) {
+                    const p1 = particles[i];
+                    const p2 = particles[j];
+                    
+                    const dx = p1.x - p2.x;
+                    const dy = p1.y - p2.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < CONNECTION_DISTANCE) {
+                        const alpha = (1 - (distance / CONNECTION_DISTANCE)) * 0.25;
+                        
+                        const rgb1 = p1.getRgbColor();
+                        const rgb2 = p2.getRgbColor();
+                        const mixedR = Math.round((rgb1.r + rgb2.r) / 2);
+                        const mixedG = Math.round((rgb1.g + rgb2.g) / 2);
+                        const mixedB = Math.round((rgb1.b + rgb2.b) / 2);
+                        
+                        ctx.beginPath();
+                        ctx.moveTo(p1.x, p1.y);
+                        ctx.lineTo(p2.x, p2.y);
+                        ctx.strokeStyle = `rgba(${mixedR}, ${mixedG}, ${mixedB}, ${alpha})`;
+                        ctx.lineWidth = 0.8;
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+        
+        // 动画循环
+        function animate() {
+            // 清除画布（使用半透明黑色产生轻微拖尾）
+            ctx.fillStyle = 'rgba(10, 14, 39, 0.15)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // 绘制背景星星
+            stars.forEach(star => {
+                star.update();
+                star.draw();
+            });
+            
+            // 更新粒子
+            particles.forEach(particle => {
+                particle.update();
+            });
+            
+            // 绘制连线
+            drawConnections();
+            
+            // 绘制粒子
+            particles.forEach(particle => {
+                particle.draw();
+            });
+            
+            animationId = requestAnimationFrame(animate);
+        }
+        
+        // 触发超空间效果
+        function triggerWarp() {
+            if (warpMode) return;
+            
+            warpMode = true;
+            
+            // 清除之前的定时器
+            if (warpTimer) clearTimeout(warpTimer);
+            
+            // 1.5秒后恢复正常
+            warpTimer = setTimeout(() => {
+                warpMode = false;
+                // 给粒子一个随机的新速度
+                particles.forEach(p => {
+                    p.vx = (Math.random() - 0.5) * 1.5;
+                    p.vy = (Math.random() - 0.5) * 1.5;
+                });
+            }, 1500);
+        }
+        
+        // 事件监听
+        canvas.addEventListener('mousemove', (e) => {
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+        });
+        
+        canvas.addEventListener('mouseleave', () => {
+            mouse.x = null;
+            mouse.y = null;
+        });
+        
+        canvas.addEventListener('click', triggerWarp);
+        canvas.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            triggerWarp();
+        });
+        
+        window.addEventListener('resize', () => {
+            resizeCanvas();
+            init();
+        });
+        
+        // 启动
+        resizeCanvas();
+        init();
+        animate();
+    </script>
+</body>
+</html>

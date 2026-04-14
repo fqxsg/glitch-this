@@ -54,8 +54,7 @@ def is_latest(version: str) -> bool:
 def get_help(glitch_min: float, glitch_max: float) -> Dict:
     help_text = dict()
     help_text['path'] = 'Relative or Absolute string path to source image'
-    help_text['level'] = f'Number between {glitch_min} and {
-        glitch_max}, inclusive, representing amount of glitchiness'
+    help_text['level'] = f'Number between {glitch_min} and {glitch_max}, inclusive, representing amount of glitchiness'
     help_text['color'] = 'Include if you want to add color offset'
     help_text['scan'] = 'Include if you want to add scan lines effect\nDefaults to False'
     help_text['seed'] = 'Set a random seed for generating similar images across runs'
@@ -63,8 +62,7 @@ def get_help(glitch_min: float, glitch_max: float) -> Dict:
     help_text['frames'] = 'Number of frames to include in output GIF, default - 23'
     help_text['step'] = 'Glitch every step\'th frame of output GIF, default - 1 (every frame)'
     help_text['increment'] = 'Increment glitch_amount by given value after glitching every frame of output GIF'
-    help_text['cycle'] = f'Include if glitch_amount should be cycled back to {
-        glitch_min} or {glitch_max} if it over/underflows'
+    help_text['cycle'] = f'Include if glitch_amount should be cycled back to {glitch_min} or {glitch_max} if it over/underflows'
     help_text['duration'] = 'How long to display each frame (in centiseconds), default - 200'
     help_text['relative_duration'] = 'Multiply given value to input GIF\'s original duration and use that as duration'
     help_text['loop'] = 'How many times the glitched GIF should loop, default - 0 (infinite loop)'
@@ -72,6 +70,12 @@ def get_help(glitch_min: float, glitch_max: float) -> Dict:
     help_text['force'] = 'Forcefully overwrite output file'
     help_text['out'] = 'Explcitly supply full/relative path to output file'
     help_text["output_frames"] = "Output individual frames of the glitched GIF as separate images"
+    help_text['particle'] = 'Include if you want to add particle effect'
+    help_text['particle_count'] = 'Number of particles to generate, default - 100'
+    help_text['particle_size'] = 'Size of particles in pixels, default - 3'
+    help_text['particles'] = 'Include if you want to add particle effect'
+    help_text['particle_count'] = 'Number of particles to generate, default - 100'
+    help_text['particles'] = 'Include if you want to add particle effect'
 
     return help_text
 
@@ -122,6 +126,12 @@ def main():
                            help=help_text['out'])
     argparser.add_argument("-of", "--output-frames", dest="output_frames",
                            action="store_true", help=help_text["output_frames"])
+    argparser.add_argument("-p", "--particles", dest="particles", action="store_true",
+                           help=help_text['particles'])
+    argparser.add_argument("-pc", "--particle-count", dest="particle_count", metavar='Particle_Count', type=int, default=100,
+                           help=help_text['particle_count'])
+    argparser.add_argument("-ps", "--particle-size", dest="particle_size", metavar='Particle_Size', type=int, default=3,
+                           help=help_text['particle_size'])
     args = argparser.parse_args()
 
     # Sanity check inputs
@@ -193,7 +203,8 @@ def main():
                                            seed=args.seed,
                                            gif=args.gif,
                                            frames=args.frames,
-                                           step=args.step)
+                                           step=args.step,
+                                           particles=False)
     else:
         # Get glitched image or GIF (from GIF)
         glitch_img, src_duration, args.frames = glitcher.glitch_gif(args.src_img_path, args.glitch_level,
@@ -217,10 +228,12 @@ def main():
         t3 = time()
         print('Glitched Image saved in "{}"'.format(full_path))
     elif not args.output_frames:
-        glitch_img[0].save(
+        # Convert frames to RGB to preserve neon colors
+        rgb_frames = [frame.convert('RGB') for frame in glitch_img]
+        rgb_frames[0].save(
             full_path,
             format="GIF",
-            append_images=glitch_img[1:],
+            append_images=rgb_frames[1:],
             save_all=True,
             duration=args.duration,
             loop=args.loop,
@@ -228,8 +241,7 @@ def main():
         )
         t3 = time()
         print(
-            f'Glitched GIF saved in "{full_path}"\nFrames = {
-                args.frames}, Duration = {args.duration}, Loop = {args.loop}'
+            f'Glitched GIF saved in "{full_path}"\nFrames = {args.frames}, Duration = {args.duration}, Loop = {args.loop}'
         )
     else:
         for i, frame in enumerate(glitch_img):

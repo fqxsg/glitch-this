@@ -79,7 +79,7 @@ class ImageGlitcher:
             try:
                 # Open the image at given path
                 img = self.__open_image(src_img)
-            except:
+            except Exception:
                 # File is not an Image
                 raise Exception('Wrong format')
         elif isinstance(src_img, Image.Image) and (gif_allowed or not self.__isgif(src_img)):
@@ -118,7 +118,7 @@ class ImageGlitcher:
         ...
 
     def glitch_image(self, src_img: Union[str, Image.Image], glitch_amount: Union[int, float], seed: Optional[Union[int, float]] = None, glitch_change: Union[int, float] = 0.0,
-                     color_offset: bool = False, scan_lines: bool = False, gif: bool = False, cycle: bool = False, frames: int = 23, step: int = 1) -> Union[Image.Image, List[Image.Image]]:
+                     color_offset: bool = False, scan_lines: bool = False, gif: bool = False, cycle: bool = False, frames: int = 23, step: int = 1, particles: bool = False) -> Union[Image.Image, List[Image.Image]]:
         """
          Sets up values needed for glitching the image
 
@@ -149,6 +149,8 @@ class ImageGlitcher:
 
          seed: Set a random seed for generating similar images across runs,
                defaults to None (random seed).
+
+         particles: Specify True if particle effect should be applied
         """
 
         # Sanity checking the inputs
@@ -192,10 +194,10 @@ class ImageGlitcher:
         except FileNotFoundError:
             # Throw DETAILED exception here (Traceback will be present from previous exceptions)
             raise FileNotFoundError(f'No image found at given path: {src_img}')
-        except:
-            # Throw DETAILED exception here (Traceback will be present from previous exceptions)
-            raise Exception(
-                'File format not supported - must be a non-animated image file')
+        except Exception:
+                # Throw DETAILED exception here (Traceback will be present from previous exceptions)
+                raise Exception(
+                    'File format not supported - must be a non-animated image file')
 
         # Fetching image attributes
         self.pixel_tuple_len = len(img.getbands())
@@ -314,9 +316,9 @@ class ImageGlitcher:
         except FileNotFoundError:
             # Throw DETAILED exception here (Traceback will be present from previous exceptions)
             raise FileNotFoundError(f'No image found at given path: {src_gif}')
-        except:
-            # Throw DETAILED exception here (Traceback will be present from previous exceptions)
-            raise Exception('File format not supported - must be an image file')
+        except Exception:
+                # Throw DETAILED exception here (Traceback will be present from previous exceptions)
+                raise Exception('File format not supported - must be an image file')
 
         # Set up directory for storing glitched images
         if os.path.isdir(self.gif_dirpath):
@@ -351,14 +353,16 @@ class ImageGlitcher:
             if not i % step == 0:
                 # Only every step'th frame should be glitched
                 # Other frames will be appended as they are
-                glitched_imgs.append(Image.open(src_frame_path).copy())
+                with Image.open(src_frame_path) as src_img:
+                    glitched_imgs.append(src_img.copy())
                 i += 1
                 continue
             glitched_img: Image.Image = self.glitch_image(src_frame_path, glitch_amount,
                                                           color_offset=color_offset, scan_lines=scan_lines)
             file_path = os.path.join(self.gif_dirpath, 'glitched_frame.png')
             glitched_img.save(file_path, compress_level=3)
-            glitched_imgs.append(Image.open(file_path).copy())
+            with Image.open(file_path) as glitched_frame:
+                glitched_imgs.append(glitched_frame.copy())
             # Change glitch_amount by given value
             glitch_amount = self.__change_glitch(
                 glitch_amount, glitch_change, cycle)
@@ -386,7 +390,7 @@ class ImageGlitcher:
                 self.glitch_max)) if cycle else self.glitch_max
         return glitch_amount
 
-    def __get_glitched_img(self, glitch_amount: Union[int, float], color_offset: int, scan_lines: bool) -> Image.Image:
+    def __get_glitched_img(self, glitch_amount: Union[int, float], color_offset: bool, scan_lines: bool, particles: bool = False) -> Image.Image:
         """
          Glitches the image located at given path
          Intensity of glitch depends on glitch_amount
@@ -436,6 +440,13 @@ class ImageGlitcher:
         if scan_lines:
             # Add scan lines if checked true
             self.__add_scan_lines()
+
+        if particles:
+            # Add particle effect if checked true
+            self.__add_particles()
+
+        # Apply blue-orange duotone artistic effect
+        self.__apply_duotone()
 
         # Creating glitched image from output array
         return Image.fromarray(self.outputarr, self.img_mode)
@@ -558,6 +569,111 @@ class ImageGlitcher:
                        channel_index] = self.inputarr[self.img_height - offset_y:,
                                                       :,
                                                       channel_index]
+
+    def __add_particles(self, particle_count: int = 500, particle_size: int = 8):
+        """
+        Add dramatic neon glitch particle effects with blue-orange duotone
+        Creates bright, glowing pixel clusters with chromatic aberration
+        """
+        for _ in range(particle_count):
+            # Random position with bias towards edges for glitch effect
+            if random.random() < 0.6:
+                # 60% chance to place near edges (glitch style)
+                edge = random.choice(['top', 'bottom', 'left', 'right'])
+                if edge == 'top':
+                    x = random.randint(0, self.img_width - 1)
+                    y = random.randint(0, int(self.img_height * 0.2))
+                elif edge == 'bottom':
+                    x = random.randint(0, self.img_width - 1)
+                    y = random.randint(int(self.img_height * 0.8), self.img_height - 1)
+                elif edge == 'left':
+                    x = random.randint(0, int(self.img_width * 0.2))
+                    y = random.randint(0, self.img_height - 1)
+                else:  # right
+                    x = random.randint(int(self.img_width * 0.8), self.img_width - 1)
+                    y = random.randint(0, self.img_height - 1)
+            else:
+                # 40% chance - random position
+                x = random.randint(0, self.img_width - 1)
+                y = random.randint(0, self.img_height - 1)
+
+            if self.pixel_tuple_len >= 3:
+                # Blue-Orange duotone colors only
+                duotone_colors = [
+                    [0, 100, 255],     # Deep Blue
+                    [0, 150, 255],     # Bright Blue
+                    [0, 200, 255],     # Cyan-Blue
+                    [255, 100, 0],     # Deep Orange
+                    [255, 140, 0],     # Dark Orange
+                    [255, 180, 50],    # Golden Orange
+                    [255, 200, 100],   # Light Orange
+                ]
+                color = random.choice(duotone_colors)
+
+                # Draw glowing particle with gradient
+                size = random.randint(3, particle_size + 3)
+                x_end = min(x + size, self.img_width)
+                y_end = min(y + size, self.img_height)
+
+                for py in range(y, y_end):
+                    for px in range(x, x_end):
+                        # Create gradient effect (brighter in center)
+                        dist_from_center = abs((px - x) - size/2) + abs((py - y) - size/2)
+                        brightness = max(0.3, 1.0 - dist_from_center / size)
+                        
+                        glow_color = [int(c * brightness) for c in color]
+                        
+                        # Add chromatic aberration offset for glitch effect
+                        offset_x = random.randint(-2, 2)
+                        offset_y = random.randint(-2, 2)
+                        px_offset = max(0, min(self.img_width - 1, px + offset_x))
+                        py_offset = max(0, min(self.img_height - 1, py + offset_y))
+                        
+                        if self.pixel_tuple_len >= 3:
+                            self.outputarr[py_offset, px_offset, :3] = glow_color
+
+        # Add horizontal glitch lines with blue-orange colors
+        num_glitch_lines = random.randint(5, 15)
+        for _ in range(num_glitch_lines):
+            line_y = random.randint(0, self.img_height - 1)
+            line_height = random.randint(2, 8)
+            duotone_color = random.choice([
+                [0, 150, 255],     # Bright Blue
+                [255, 140, 0],     # Dark Orange
+                [0, 100, 255],     # Deep Blue
+                [255, 180, 50],    # Golden Orange
+            ])
+            
+            for dy in range(line_height):
+                y_pos = min(line_y + dy, self.img_height - 1)
+                # Random horizontal offset for glitch effect
+                offset = random.randint(-20, 20)
+                if offset > 0:
+                    self.outputarr[y_pos, offset:, :3] = self.outputarr[y_pos, :-offset, :3]
+                    self.outputarr[y_pos, :offset, :3] = duotone_color
+                elif offset < 0:
+                    offset = abs(offset)
+                    self.outputarr[y_pos, :-offset, :3] = self.outputarr[y_pos, offset:, :3]
+                    self.outputarr[y_pos, -offset:, :3] = duotone_color
+
+    def __apply_duotone(self, blue_tone: List[int] = [0, 100, 255], orange_tone: List[int] = [255, 140, 0]):
+        """
+        Apply blue-orange duotone effect to the entire image
+        Creates artistic two-tone color scheme
+        """
+        if self.pixel_tuple_len < 3:
+            return
+            
+        # Convert to grayscale first (luminance)
+        gray = np.dot(self.outputarr[...,:3], [0.2989, 0.5870, 0.1140])
+        
+        # Normalize to 0-1
+        gray_normalized = gray / 255.0
+        
+        # Create black and white mapping
+        # Pure grayscale - black and white only
+        bw = np.clip(gray * 1.2, 0, 255).astype(np.uint8)
+        self.outputarr[:,:,:3] = np.stack([bw, bw, bw], axis=-1)
 
     def __get_random_channel(self) -> int:
         # Returns a random index from 0 to pixel_tuple_len
